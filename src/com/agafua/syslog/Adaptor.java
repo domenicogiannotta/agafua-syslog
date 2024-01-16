@@ -22,8 +22,9 @@ THE SOFTWARE.
 
 package com.agafua.syslog;
 
-import java.util.Calendar;
-import java.util.GregorianCalendar;
+import java.text.DateFormat;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 import java.util.logging.Level;
 import java.util.logging.LogRecord;
 
@@ -32,10 +33,7 @@ import java.util.logging.LogRecord;
  */
 class Adaptor {
 
-    private static final String[] MONTH_NAMES =
-            {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
-
-    public String adaptPriority(LogRecord logRecord, Facility facility) {
+   public String adaptPriority(LogRecord logRecord, Facility facility) {
         int code = (facility.getId() << 3) + adaptSeverity(logRecord);
         return String.format("<%d>", code);
     }
@@ -54,36 +52,9 @@ class Adaptor {
     }
 
     public String adaptTimeStamp(LogRecord logRecord) {
-        long millis = logRecord.getMillis();
-        GregorianCalendar calendar = new GregorianCalendar();
-        calendar.setTimeInMillis(millis);
-        int month = limit(calendar.get(Calendar.MONTH), 0, 11);
-        String mmm = MONTH_NAMES[month];
-        int day = limit(calendar.get(Calendar.DAY_OF_MONTH), 1, 31);
-        String dd = indent("" + day, 2, ' ');
-        int hour = limit(calendar.get(Calendar.HOUR_OF_DAY), 0, 23);
-        String hh = indent("" + hour, 2, '0');
-        int minute = limit(calendar.get(Calendar.MINUTE), 0, 59);
-        String mm = indent("" + minute, 2, '0');
-        int second = limit(calendar.get(Calendar.SECOND), 0, 59);
-        String ss = indent("" + second, 2, '0');
-        return String.format("%s %s %s:%s:%s", mmm, dd, hh, mm, ss);
+    	DateFormat df = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'");
+        return df.format(new Date(logRecord.getMillis()));
     }
 
-    private static String indent(String s, int requiredLength, char identChar) {
-        while (s.length() < requiredLength) {
-            s = identChar + s;
-        }
-        return s;
-    }
 
-    private static int limit(int value, int min, int max) {
-        if (value < min) {
-            return min;
-        }
-        if (value > max) {
-            return max;
-        }
-        return value;
-    }
 }

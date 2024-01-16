@@ -39,6 +39,7 @@ public class SyslogHandler extends Handler {
     private static final int DEFAULT_PORT = 514;
     private static final int MIN_PORT = 0;
     private static final int MAX_PORT = 65535;
+    private static final String DEF_APPNAME = "-";
 
     private static final String TRANSPORT_PROPERTY = "transport";
     private static final String HOSTNAME_PROPERTY = "hostname";
@@ -47,12 +48,16 @@ public class SyslogHandler extends Handler {
     private static final String DAEMON_MODE_PROPERTY = "daemon";
     private static final String FORMATTER_PROPERTY = "formatter";
     private static final String ESCAPE_NEWLINES_PROPERTY = "escapeNewlines";
+    private static final String LEVEL_PROPERTY = "level";
+    private static final String FILTER_PROPERTY = "filter";
+    private static final String APPNAME_PROPERTY = "appname";
+    private static final String STRING_SEPARATOR = " ";
+    private static final String SYSLOG_VERSION = "1";
 
-    private final String hostName;
+    private final String hostName, appName;
     private final int port;
     private final Facility facility;
     private final Transport transport;
-    private final Formatter formatter;
     
     private BlockingQueue<Message> blockingQueue = new ArrayBlockingQueue<Message>(LOG_QUEUE_SIZE);
     private boolean closed = false;
@@ -73,10 +78,12 @@ public class SyslogHandler extends Handler {
         super();
         transport = parseTransport();
         hostName = parseHostName();
+        appName = parseAppName();
         port = parsePort();
         facility = parseFacility();
-        formatter = parseFormatter();
-        setFormatter(new SimpleFormatter());
+        setFormatter(parseFormatter());
+        setFilter(parseFilter());
+        setLevel(parseLevel());
         if (Transport.TCP.equals(transport)) {
             worker = new Thread(new TcpSender(hostName, port, blockingQueue));
         } else {
@@ -90,16 +97,21 @@ public class SyslogHandler extends Handler {
         if (closed) {
             return;
         }
+        //<15>1 2024-01-16T18:14:15.003Z cbdlapxas01.ux.cbdom.it APP_NAME MESSAGGIO"
         try {
             Message message = new Message();
             String pri = adaptor.adaptPriority(record, facility);
             message.print(pri);
+            message.print(SYSLOG_VERSION);
+            message.print(STRING_SEPARATOR);
             String timestamp = adaptor.adaptTimeStamp(record);
             message.print(timestamp);
-            message.print(" ");
+            message.print(STRING_SEPARATOR);
             String host = getLocalHostname();
             message.print(host);
-            message.print(" ");
+            message.print(STRING_SEPARATOR);
+            message.print(appName);
+            message.print(STRING_SEPARATOR);
             String msg = getFormatter().format(record);
             message.print(msg);
             blockingQueue.offer(message);
@@ -140,11 +152,7 @@ public class SyslogHandler extends Handler {
     }
 
     private Transport parseTransport() {
-        String transportValue = ConfigurationUtil
-                .getStringPropertyOfLogHandlerClass(
-                        SyslogHandler.class,
-                        TRANSPORT_PROPERTY
-                );
+        String transportValue = ConfigurationUtil.getStringPropertyOfLogHandlerClass(SyslogHandler.class, TRANSPORT_PROPERTY);
         for (Transport t : Transport.values()) {
             if (t.name().equalsIgnoreCase(transportValue)) {
                 return t;
@@ -154,30 +162,22 @@ public class SyslogHandler extends Handler {
     }
 
     private String parseHostName() {
-        String hostNameValue = ConfigurationUtil
-                .getStringPropertyOfLogHandlerClass(
-                        SyslogHandler.class,
-                        HOSTNAME_PROPERTY
-                );
-        if (hostNameValue != null && hostNameValue.length() > 0) {
-            return hostNameValue;
-        }
-        return LOCALHOST;
+    	String val =  ConfigurationUtil.getStringPropertyOfLogHandlerClass(SyslogHandler.class, HOSTNAME_PROPERTY);
+    	return val != null ? val : LOCALHOST;
+    }
+    
+    private String parseAppName() {
+    	String val =  ConfigurationUtil.getStringPropertyOfLogHandlerClass(SyslogHandler.class, APPNAME_PROPERTY);
+    	return val != null ? val : DEF_APPNAME;
     }
 
     private int parsePort() {
-        String portValue = ConfigurationUtil
-                .getStringPropertyOfLogHandlerClass(
-                        SyslogHandler.class,
-                        PORT_PROPERTY
-                );
+        String portValue = ConfigurationUtil.getStringPropertyOfLogHandlerClass(SyslogHandler.class, PORT_PROPERTY);
         if (portValue != null) {
             Integer p = null;
             try {
                 p = Integer.parseInt(portValue);
-            } catch (NumberFormatException e) {
-
-            }
+            } catch (NumberFormatException e) { }
             if (p != null && p >= MIN_PORT && p < MAX_PORT) {
                 return p;
             }
@@ -186,11 +186,7 @@ public class SyslogHandler extends Handler {
     }
 
     private Facility parseFacility() {
-        String facilityValue = ConfigurationUtil
-                .getStringPropertyOfLogHandlerClass(
-                        SyslogHandler.class,
-                        FACILITY_PROPERTY
-                );
+        String facilityValue = ConfigurationUtil.getStringPropertyOfLogHandlerClass(SyslogHandler.class, FACILITY_PROPERTY);
         for (Facility f : Facility.values()) {
             if (f.name().equalsIgnoreCase(facilityValue)) {
                 return f;
@@ -235,68 +231,50 @@ public class SyslogHandler extends Handler {
      *         output
      */
     private Formatter parseFormatter() {
-        Class formatterClass = null;
-        Formatter formatterInstance = null;
-        String formatterClassProperty = ConfigurationUtil
-                .getStringPropertyOfLogHandlerClass(
-                        SyslogHandler.class,
-                        FORMATTER_PROPERTY
-                );
-        
-        if (formatterClassProperty != null) {
-            try {
-                formatterClass = ClassLoader.getSystemClassLoader().loadClass(formatterClassProperty);
+        String formatterClassProperty = ConfigurationUtil.getStringPropertyOfLogHandlerClass(SyslogHandler.class, FORMATTER_PROPERTY);
+        try {
+        	if (formatterClassProperty != null) {
+        		Class<?> formatterClass = ClassLoader.getSystemClassLoader().loadClass(formatterClassProperty);
+            	return (Formatter)formatterClass.newInstance();
             } 
-            catch (ClassNotFoundException e) {
-                // ignore
-            }
-        }
-        
-        if (formatterClass != null) {
-            try {
-                formatterInstance = (Formatter)formatterClass.newInstance();
-            } 
-            catch (InstantiationException e) {
-                // ignore
-            }
-            catch (IllegalAccessException e) {
-                // ignore
-            }
-        }
-        
-        if (formatterInstance == null) {
-            formatterInstance = new SimpleFormatter();
-        }
-        
-        return formatterInstance;
-        
+        } catch (Exception e) { }
+        return new SimpleFormatter();    
     }
-
-
-    /**
-     * Get the log formatter instance used by this <tt>SyslogHandler</tt>
-     * 
-     * @return <tt>Formatter</tt> instance
-     */
-    public Formatter getFormatter() {
-        return this.formatter;
+    
+   
+    private Level parseLevel() {
+        String val = ConfigurationUtil.getStringPropertyOfLogHandlerClass(SyslogHandler.class, LEVEL_PROPERTY);
+        try {
+        	if (val != null) {
+        		return Level.parse(val.trim());
+        	}
+        } catch (Exception e) { }
+        return Level.ALL;
     }
-
+    
+    private Filter parseFilter() {
+        String val = ConfigurationUtil.getStringPropertyOfLogHandlerClass(SyslogHandler.class, FILTER_PROPERTY);
+        try {
+            if (val != null) {
+                Class<?> clz = ClassLoader.getSystemClassLoader().loadClass(val);
+                return (Filter) clz.newInstance();
+            }
+        } catch (Exception ex) { }
+        return null;
+    }
+    
     /**
      * Checks for ESCAPE_NEWLINES_PROPERTY and return its boolean value if any.
      * By default new lines are escaped.
      * @return whether new lines need to be escaped.
      */
     private static boolean parseEscapeNewlines() {
-        String escapeProperty = ConfigurationUtil
-            .getStringPropertyOfLogHandlerClass(
-                SyslogHandler.class,
-                ESCAPE_NEWLINES_PROPERTY
-            );
+        String escapeProperty = ConfigurationUtil.getStringPropertyOfLogHandlerClass(SyslogHandler.class, ESCAPE_NEWLINES_PROPERTY);
         // by default new lines are replaced
         if(escapeProperty != null)
             return Boolean.parseBoolean(escapeProperty);
         else
             return true;
     }
+    
 }

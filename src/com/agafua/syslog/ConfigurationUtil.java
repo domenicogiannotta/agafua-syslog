@@ -8,9 +8,7 @@ import java.util.logging.*;
 public class ConfigurationUtil {
 
     
-    static String getStringPropertyOfLogHandlerClass(
-            Class handlerClass,
-            String propertyName) {
+    static String getStringPropertyOfLogHandlerClass(Class<?> handlerClass,  String propertyName) {
         String propertyFQName = handlerClass.getName() + "." + propertyName;
         return LogManager.getLogManager().getProperty(propertyFQName);
     }
